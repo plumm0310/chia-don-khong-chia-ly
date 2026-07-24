@@ -9,21 +9,9 @@ const supabaseAnonKey =
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const MEMBERS = [
-  'Hoa Boss',
-  'Tuyến',
-  'Tú',
-  'Nhàn',
-  'Đạt',
-  'Thành',
-  'Thủy',
-  'Dung',
-  'Thoại Anh',
-  'Chi',
-  'Như',
-  'Vân',
-  'Phúc',
-  'Diệu',
-  'Khoa',
+  'Hoa Boss', 'Tuyến', 'Tú', 'Nhàn', 'Đạt', 'Thành', 
+  'Thủy', 'Dung', 'Thoại Anh', 'Chi', 'Như', 'Vân', 
+  'Phúc', 'Diệu', 'Khoa',
 ];
 
 interface Transaction {
@@ -38,51 +26,39 @@ export default function Home() {
   const [note, setNote] = useState('');
   const [splitType, setSplitType] = useState<'equal' | 'custom'>('equal');
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
-  const [customAmounts, setCustomAmounts] = useState<{ [key: string]: string }>(
-    {}
-  );
+  const [customAmounts, setCustomAmounts] = useState<{ [key: string]: string }>({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [settlements, setSettlements] = useState<Transaction[]>([]);
 
-  // Hàm tính toán ai chuyển tiền cho ai dựa trên Supabase Data
-  const calculateSettlements = async () => {
-    const now = new Date();
-    const startOfMonth = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      1
-    ).toISOString();
-    const endOfMonth = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      0,
-      23,
-      59,
-      59
-    ).toISOString();
+  // State chọn Tháng/Năm xem báo cáo (Mặc định là tháng/năm hiện tại)
+  const today = new Date();
+  const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1); // 1 - 12
+  const [selectedYear, setSelectedYear] = useState(today.getFullYear());
+
+  // Hàm tính toán ai chuyển tiền cho ai dựa trên Supabase Data & Tháng được chọn
+  const calculateSettlements = async (month: number, year: number) => {
+    const startOfMonth = new Date(year, month - 1, 1).toISOString();
+    const endOfMonth = new Date(year, month, 0, 23, 59, 59).toISOString();
 
     const { data: expenses, error } = await supabase
       .from('expenses')
       .select('*')
       .gte('created_at', startOfMonth)
       .lte('created_at', endOfMonth);
+      
     if (error || !expenses) return;
 
-    // 1. Tính Net Balance từng người
+    // 1. Tính Net Balance
     const netBalances: { [key: string]: number } = {};
     MEMBERS.forEach((m) => (netBalances[m] = 0));
 
     expenses.forEach((item) => {
-      // Người trả tiền được cộng (Dương)
-      netBalances[item.payer] =
-        (netBalances[item.payer] || 0) + Number(item.amount);
-      // Người thụ hưởng bị trừ (Âm)
-      netBalances[item.consumer] =
-        (netBalances[item.consumer] || 0) - Number(item.amount);
+      netBalances[item.payer] = (netBalances[item.payer] || 0) + Number(item.amount);
+      netBalances[item.consumer] = (netBalances[item.consumer] || 0) - Number(item.amount);
     });
 
-    // 2. Phân loại chỉ lấy người THỰC SỰ NỢ (> 0đ) và THỰC SỰ ĐƯỢC NHẬN (> 0đ)
+    // 2. Phân loại người nợ/người nhận
     let debtors: { name: string; amount: number }[] = [];
     let creditors: { name: string; amount: number }[] = [];
 
@@ -92,10 +68,9 @@ export default function Home() {
       else if (bal > 0) creditors.push({ name, amount: bal });
     });
 
-    // 3. Thuật toán triệt tiêu nợ ghép cặp
+    // 3. Thuật toán triệt tiêu nợ
     const results: Transaction[] = [];
-    let i = 0,
-      j = 0;
+    let i = 0, j = 0;
 
     while (i < debtors.length && j < creditors.length) {
       const debtor = debtors[i];
@@ -120,9 +95,10 @@ export default function Home() {
     setSettlements(results);
   };
 
+  // Tự động load lại báo cáo khi đổi Tháng/Năm trên dropdown
   useEffect(() => {
-    calculateSettlements();
-  }, []);
+    calculateSettlements(selectedMonth, selectedYear);
+  }, [selectedMonth, selectedYear]);
 
   const toggleMember = (member: string) => {
     if (selectedMembers.includes(member)) {
@@ -146,7 +122,6 @@ export default function Home() {
       return;
     }
 
-    // Kiểm tra nếu chọn nhập riêng thì tổng tiền gõ vào phải bằng Tổng hóa đơn
     if (splitType === 'custom') {
       const totalCustom = selectedMembers.reduce(
         (sum, m) => sum + Number(customAmounts[m] || 0),
@@ -154,9 +129,7 @@ export default function Home() {
       );
       if (totalCustom !== billAmount) {
         setMessage(
-          `⚠️ Tổng tiền nhập riêng (${totalCustom.toLocaleString(
-            'vi-VN'
-          )}đ) chưa bằng Tổng hóa đơn (${billAmount.toLocaleString('vi-VN')}đ)!`
+          `⚠️ Tổng tiền nhập riêng (${totalCustom.toLocaleString('vi-VN')}đ) chưa bằng Tổng hóa đơn (${billAmount.toLocaleString('vi-VN')}đ)!`
         );
         return;
       }
@@ -197,7 +170,7 @@ export default function Home() {
       setSelectedMembers([]);
       setCustomAmounts({});
 
-      calculateSettlements();
+      calculateSettlements(selectedMonth, selectedYear);
     } catch (err: any) {
       setMessage(`❌ Lỗi: ${err.message || 'Không thể lưu data'}`);
     } finally {
@@ -205,7 +178,6 @@ export default function Home() {
     }
   };
 
-  // Tính tổng số tiền nhập riêng hiện tại để hiển thị cho người dùng biết
   const currentCustomTotal = selectedMembers.reduce(
     (sum, m) => sum + Number(customAmounts[m] || 0),
     0
@@ -233,25 +205,19 @@ export default function Home() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold mb-1">
-                  Người trả tiền
-                </label>
+                <label className="block text-xs font-semibold mb-1">Người trả tiền</label>
                 <select
                   value={payer}
                   onChange={(e) => setPayer(e.target.value)}
                   className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-[#01c2f3]"
                 >
                   {MEMBERS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
+                    <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold mb-1">
-                  Tổng hóa đơn (VND)
-                </label>
+                <label className="block text-xs font-semibold mb-1">Tổng hóa đơn (VND)</label>
                 <input
                   type="number"
                   placeholder="0"
@@ -263,9 +229,7 @@ export default function Home() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold mb-1">
-                Ghi chú
-              </label>
+              <label className="block text-xs font-semibold mb-1">Ghi chú</label>
               <input
                 type="text"
                 placeholder="VD: Tiền ăn lẩu..."
@@ -276,16 +240,12 @@ export default function Home() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold mb-1">
-                Cách chia
-              </label>
+              <label className="block text-xs font-semibold mb-1">Cách chia</label>
               <div className="grid grid-cols-2 gap-2 bg-gray-100 p-1 rounded-xl">
                 <button
                   onClick={() => setSplitType('equal')}
                   className={`py-2 text-sm font-semibold rounded-lg transition ${
-                    splitType === 'equal'
-                      ? 'bg-[#01c2f3] text-white shadow-sm'
-                      : 'text-gray-600'
+                    splitType === 'equal' ? 'bg-[#01c2f3] text-white shadow-sm' : 'text-gray-600'
                   }`}
                 >
                   Chia đều
@@ -293,9 +253,7 @@ export default function Home() {
                 <button
                   onClick={() => setSplitType('custom')}
                   className={`py-2 text-sm font-semibold rounded-lg transition ${
-                    splitType === 'custom'
-                      ? 'bg-[#01c2f3] text-white shadow-sm'
-                      : 'text-gray-600'
+                    splitType === 'custom' ? 'bg-[#01c2f3] text-white shadow-sm' : 'text-gray-600'
                   }`}
                 >
                   Nhập số tiền riêng
@@ -311,13 +269,10 @@ export default function Home() {
                 {splitType === 'custom' && Number(totalBill) > 0 && (
                   <span
                     className={`text-xs font-bold ${
-                      currentCustomTotal === Number(totalBill)
-                        ? 'text-emerald-600'
-                        : 'text-amber-600'
+                      currentCustomTotal === Number(totalBill) ? 'text-emerald-600' : 'text-amber-600'
                     }`}
                   >
-                    Đã nhập: {currentCustomTotal.toLocaleString('vi-VN')} /{' '}
-                    {Number(totalBill).toLocaleString('vi-VN')} đ
+                    Đã nhập: {currentCustomTotal.toLocaleString('vi-VN')} / {Number(totalBill).toLocaleString('vi-VN')} đ
                   </span>
                 )}
               </div>
@@ -334,20 +289,11 @@ export default function Home() {
                           : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
                       }`}
                     >
-                      <div
-                        onClick={() => toggleMember(member)}
-                        className="cursor-pointer flex items-center gap-2"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          readOnly
-                          className="rounded accent-[#01c2f3]"
-                        />
+                      <div onClick={() => toggleMember(member)} className="cursor-pointer flex items-center gap-2">
+                        <input type="checkbox" checked={isSelected} readOnly className="rounded accent-[#01c2f3]" />
                         <span className="truncate flex-1">{member}</span>
                       </div>
 
-                      {/* NẾU CHỌN NHẬP RIÊNG & THÀNH VIÊN NÀY ĐƯỢC TICK -> HIỆN Ô NHẬP TIỀN */}
                       {splitType === 'custom' && isSelected && (
                         <div className="mt-2 pt-2 border-t border-[#01c2f3]/20">
                           <input
@@ -355,10 +301,7 @@ export default function Home() {
                             placeholder="Nhập số tiền (VND)"
                             value={customAmounts[member] || ''}
                             onChange={(e) =>
-                              setCustomAmounts({
-                                ...customAmounts,
-                                [member]: e.target.value,
-                              })
+                              setCustomAmounts({ ...customAmounts, [member]: e.target.value })
                             }
                             onClick={(e) => e.stopPropagation()}
                             className="w-full p-1.5 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:border-[#01c2f3] text-[#2a3479]"
@@ -386,15 +329,39 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Panel Thống Kê & Chuyển Khoản Cuối Tháng */}
+          {/* Panel Thống Kê & Chọn Tháng */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-start space-y-4">
-            <h3 className="font-bold text-[#2a3479] text-base flex items-center gap-2 border-b pb-3">
-              💸 Ai Chuyển Cho Ai?
-            </h3>
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="font-bold text-[#2a3479] text-base flex items-center gap-1">
+                💸 Chốt Sổ Nợ
+              </h3>
+              
+              {/* Dropdown Chọn Tháng/Năm */}
+              <div className="flex items-center gap-1">
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                  className="text-xs p-1.5 bg-gray-100 font-semibold text-[#2a3479] rounded-lg border-0 focus:outline-none"
+                >
+                  {Array.from({ length: 12 }, (_, idx) => (
+                    <option key={idx + 1} value={idx + 1}>Tháng {idx + 1}</option>
+                  ))}
+                </select>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(Number(e.target.value))}
+                  className="text-xs p-1.5 bg-gray-100 font-semibold text-[#2a3479] rounded-lg border-0 focus:outline-none"
+                >
+                  {[2025, 2026, 2027].map((y) => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
             {settlements.length === 0 ? (
               <div className="text-center py-12 text-gray-400 text-xs">
-                Chưa có dữ liệu nợ hoặc phòng đã hòa tiền nhau!
+                Không có dữ liệu nợ trong Tháng {selectedMonth}/{selectedYear}!
               </div>
             ) : (
               <div className="space-y-3 overflow-y-auto max-h-[500px] pr-1">
@@ -404,13 +371,9 @@ export default function Home() {
                     className="p-3 bg-[#f8fafc] border border-gray-100 rounded-xl space-y-1"
                   >
                     <div className="flex items-center justify-between text-xs font-semibold">
-                      <span className="text-red-500 font-bold">
-                        {item.from}
-                      </span>
+                      <span className="text-red-500 font-bold">{item.from}</span>
                       <span className="text-gray-400">chuyển cho</span>
-                      <span className="text-emerald-600 font-bold">
-                        {item.to}
-                      </span>
+                      <span className="text-emerald-600 font-bold">{item.to}</span>
                     </div>
                     <div className="text-right text-sm font-extrabold text-[#2a3479]">
                       {item.amount.toLocaleString('vi-VN')} đ
